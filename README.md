@@ -80,5 +80,10 @@ fastchat/train/train.py
 line 703: train_dataset = qa_dataset + dialog_dataset + vqav2_dataset + train_dataset + llava_dataset 
 
 
+# Inference
+
+python -m fastchat.serve.cli --model-path ...
+
+
 
 

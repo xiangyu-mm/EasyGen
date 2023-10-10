@@ -5,6 +5,8 @@ We present EasyGen, an efficient model designed to enhance multimodal understand
 
 ![image](https://github.com/zxy556677/EasyGen/blob/main/asset/easygen1.png)
 
+![image](https://github.com/zxy556677/EasyGen/blob/main/asset/easygen2.png)
+
 # Dependency
 
 # Pretrain (feature alignment)

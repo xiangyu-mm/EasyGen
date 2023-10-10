@@ -9,6 +9,7 @@ We present EasyGen, an efficient model designed to enhance multimodal understand
 
 bash train_vicuna_7B.sh
 
+```
 CUDA_VISIBLE_DEVICES=1 torchrun --master_port=20008 train_mem.py \
     --model_name_or_path /home/data2/xiangyu/Code/EasyGen/Tuning_for_LLaVA_only_MLP \
     --tune_mlp True \
@@ -36,15 +37,20 @@ CUDA_VISIBLE_DEVICES=1 torchrun --master_port=20008 train_mem.py \
     --gradient_checkpointing True \
     --lazy_preprocess True \
     --remove_unused_columns False \
+```
 
 fastchat/train/train.py
 
-line 703: train_dataset = pre_dataset + caption_dataset 
+line 703: 
+```
+train_dataset = pre_dataset + caption_dataset
+```
 
 # instruct-tuning
 
 bash train_vicuna_7B.sh
 
+```
 CUDA_VISIBLE_DEVICES=0,1 torchrun --master_port=20008 train_mem.py \
     --model_name_or_path /home/data2/xiangyu/Code/EasyGen/Tuning_for_LLaVA_only_MLP \
     --tune_mlp True \
@@ -74,10 +80,15 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --master_port=20008 train_mem.py \
     --remove_unused_columns False \
     --fsdp "full_shard auto_wrap" \
     --fsdp_transformer_layer_cls_to_wrap 'LlamaDecoderLayer' \
-
+```
 fastchat/train/train.py
 
-line 703: train_dataset = qa_dataset + dialog_dataset + vqav2_dataset + train_dataset + llava_dataset 
+line 703: 
+```
+train_dataset = qa_dataset + dialog_dataset + vqav2_dataset + train_dataset + llava_dataset
+```
+
+# Lora
 
 
 # Inference

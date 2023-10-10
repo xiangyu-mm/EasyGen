@@ -90,6 +90,17 @@ train_dataset = qa_dataset + dialog_dataset + vqav2_dataset + train_dataset + ll
 
 # Lora
 
+We also provide the Lora method to train EasyGen. To use lora, please run
+```
+bash train_vicuna_7B_lora.sh
+```
+Also, you need to change the 10 line in train_mem.py
+
+```
+from fastchat.train.train_lora import train
+```
+
+The inference code of lora also are different, please change the root in fastchat.serve.cli to aim at it.
 
 # Inference
 

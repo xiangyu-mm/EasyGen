@@ -106,10 +106,14 @@ from fastchat.train.train_lora import train
 
 The inference code of lora also are different, please change the root in fastchat.serve.cli to aim at it.
 
-# Download weights1
+# Download weights
+
+You can download our trained models from:
 
 https://huggingface.co/xiangyu556677/EasyGen
 
+
+# Inference
 python -m fastchat.serve.cli --model-path ...
 
 

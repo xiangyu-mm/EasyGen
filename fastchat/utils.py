@@ -226,7 +226,7 @@ def iter_over_async(
 
 
 def detect_language(text: str) -> str:
-    """Detect the langauge of a string."""
+    """Detect the language of a string."""
     import polyglot  # pip3 install polyglot pyicu pycld2
     from polyglot.detect import Detector
     from polyglot.detect.base import logger as polyglot_logger

@@ -34,6 +34,9 @@ import copy
 from fastchat.conversation import SeparatorStyle
 from fastchat.model.model_adapter import get_conversation_template
 
+from peft import LoraConfig, get_peft_config, get_peft_model
+from fastchat.train.llama_patch import upcast_layer_for_flash_attention
+
 IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 IGNORE_INDEX = LabelSmoother.ignore_index
 DEFAULT_IMAGE_TOKEN = "<image>"
@@ -62,6 +65,7 @@ class TrainingArguments(transformers.TrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     freeze_mlp: bool = field(default=False)
+    lora: bool = field(default=False)
     model_max_length: int = field(
         default=512,
         metadata={
@@ -382,6 +386,79 @@ class LazySupervisedDatasetPreTrain(Dataset):
         return data_dict
 
 
+class LazySupervisedDatasetPureTextPreTrain(Dataset):
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
+        super(LazySupervisedDatasetPureTextPreTrain, self).__init__()
+        self.tokenizer = tokenizer
+        self.data = json.load(open('/home/data2/xiangyu/InstructTuning/Data/blip_laion_cc_sbu_558k.json'))
+        self.caption_decoder = CaptionDecoder(device='cuda',
+                                              pretrained_path="/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/caption_decoder.pth",
+                                              hidden_dim=64)
+        self.clip_text_model = fastchat.bidiffuser.libs.clip.FrozenCLIPEmbedder(device='cuda')
+        self.clip_text_model.eval()
+        self.clip_text_model.to('cuda')
+        # self.num_data = 30000
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        # c = np.load(os.path.join(self.root, f'{head}_{tail}.npy'))
+        # v = np.load(os.path.join(self.root, f'{head}_{tail}_llm.npy'))
+        llm_text = self.data[index]['conversations'][1]['value']
+        query = get_rand_des()
+
+        text = str(llm_text)
+        aa = self.clip_text_model.encode(text)
+        bb = self.caption_decoder.encode_prefix(aa)
+        cc = self.caption_decoder.decode_prefix(bb).squeeze(0)
+        # answer = query + ' \n' + '### ASSISTANT: ' + text.strip().replace('\n', '') + '\n'
+        answer = query.strip().replace('\n', '') + ' ASSISTANT: ' + text.strip().replace('\n', '') + '</s>'
+        instruction_len = len(self.tokenizer(query.strip().replace('\n', '') + ' ASSISTANT: ').input_ids)
+        input_ids = self.tokenizer(
+            answer,
+            return_tensors="pt",
+            truncation=True,
+        ).input_ids[0][1:]
+        target = input_ids.clone()
+        target[:instruction_len - 2] = IGNORE_TOKEN_ID
+        data_dict = dict(input_ids=input_ids, labels=target, images=cc.to('cpu'))
+        return data_dict
+
+
+class LazySupervisedDatasetPureText(Dataset):
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
+        super(LazySupervisedDatasetPureText, self).__init__()
+        self.tokenizer = tokenizer
+        self.data = json.load(open('/home/data2/xiangyu/InstructTuning/Data/blip_laion_cc_sbu_558k.json'))
+        self.num_data = 50000
+
+    def __len__(self):
+        return self.num_data
+
+    def __getitem__(self, index):
+        # c = np.load(os.path.join(self.root, f'{head}_{tail}.npy'))
+        # v = np.load(os.path.join(self.root, f'{head}_{tail}_llm.npy'))
+        llm_text = self.data[index]['conversations'][1]['value']
+        query = get_rand_des()
+
+        text = str(llm_text)
+        # answer = query + ' \n' + '### ASSISTANT: ' + text.strip().replace('\n', '') + '\n'
+        answer = 'USER: ' + '<Img>' + text + '</Img>' + query.strip().replace('\n', '') \
+                 + ' ASSISTANT: ' + text.strip().replace('\n', '') + '</s>'
+        instruction_len = len(self.tokenizer('USER: ' + '<Img>' + text + '</Img>' +
+                                             query.strip().replace('\n', '') + ' ASSISTANT: ').input_ids)
+        input_ids = self.tokenizer(
+            answer,
+            return_tensors="pt",
+            truncation=True,
+        ).input_ids[0][1:]
+        target = input_ids.clone()
+        target[:instruction_len - 2] = IGNORE_TOKEN_ID
+        data_dict = dict(input_ids=input_ids, labels=target, images=None)
+        return data_dict
+
+
 class LazySupervisedDatasetRandom(Dataset):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
         super(LazySupervisedDatasetRandom, self).__init__()
@@ -547,6 +624,7 @@ def preprocess_conv(
 def preprocess_llava(
         sources,
         tokenizer: transformers.PreTrainedTokenizer,
+        caption=None,
 ) -> Dict:
     conv = get_conversation_template("vicuna")
     roles = {"human": conv.roles[0], "gpt": conv.roles[1]}
@@ -555,6 +633,8 @@ def preprocess_llava(
     if sources[0]["from"] != 'human':
         # Skip the first one if it is not from human
         sources = sources[1:]
+    if caption is not None:
+        sources[0]["value"] = '<Img>'+caption+'</Img>'+sources[0]["value"]
     for source in sources:
         source["value"] = source["value"].replace(DEFAULT_IMAGE_TOKEN, '').strip()
         role = roles[source["from"]]
@@ -651,6 +731,30 @@ class LazySupervisedDatasetLLaVA(Dataset):
         return data_dict
 
 
+class LazySupervisedDatasetLLaVAPre(Dataset):
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
+        super(LazySupervisedDatasetLLaVAPre, self).__init__()
+        self.tokenizer = tokenizer
+        self.root = "/home/data2/xiangyu/InstructTuning/Data/LLaVA_80K"
+        self.num_data = get_feature_test(self.root)
+        self.caption_decoder = CaptionDecoder(device='cuda',
+                                              pretrained_path="/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/caption_decoder.pth",
+                                              hidden_dim=64)
+
+    def __len__(self):
+        return self.num_data
+
+    def __getitem__(self, index):
+        # c = np.load(os.path.join(self.root, f'{head}_{tail}.npy'))
+        # v = np.load(os.path.join(self.root, f'{head}_{tail}_llm.npy'))
+        diff = np.load(os.path.join(self.root, f'{index}_tmp.npy'))
+        diff = torch.as_tensor(diff).to('cuda')
+        caption = self.caption_decoder.generate_captions_from_decoder(diff)[0]
+        conversation = np.load(os.path.join(self.root, f'{index}_conv.npy'), allow_pickle=True)
+        data_dict = preprocess_llava(conversation, self.tokenizer, caption)
+        return data_dict
+
+
 class LazySupervisedDatasetTest(Dataset):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
         super(LazySupervisedDatasetTest, self).__init__()
@@ -698,9 +802,19 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
     dataset_pre = LazySupervisedDatasetPreTrain
     pre_dataset = dataset_pre(tokenizer=tokenizer)
 
+    dataset_text = LazySupervisedDatasetPureTextPreTrain
+    text_dataset = dataset_text(tokenizer=tokenizer)
+
+    llava_pre = LazySupervisedDatasetLLaVAPre
+    pre_llava = llava_pre(tokenizer=tokenizer)
+
+    text_pre = LazySupervisedDatasetPureText
+    pre_text = text_pre(tokenizer=tokenizer)
+
     # train_dataset = qa_dataset + dialog_dataset + vqav2_dataset + train_dataset + llava_dataset
     # train_dataset = llava_dataset + train_dataset + qa_dataset + vqav2_dataset
-    train_dataset = pre_dataset + caption_dataset
+    train_dataset = pre_dataset + caption_dataset + llava_dataset + text_dataset + vqav2_dataset
+    # train_dataset = pre_text + pre_llava
     data_collator = DataCollatorForSupervisedDataset2014(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
                 eval_dataset=None,
@@ -747,9 +861,6 @@ class DataCollatorForSupervisedDatasetPre(object):
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict:
-        images = \
-            tuple([instance["images"] for instance in instances])
-        images = torch.stack(images, 0)
         input_ids, target = tuple([instance[key] for instance in instances]
                                   for key in ("input_ids", "labels"))
         # labels = [instance["input_ids"] for instance in instances]
@@ -766,7 +877,7 @@ class DataCollatorForSupervisedDatasetPre(object):
         ret = dict(
             input_ids=input_ids,
             labels=targets,
-            images=images,
+            images=None,
             attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
         )
         torch.set_printoptions(profile="full")
@@ -774,6 +885,76 @@ class DataCollatorForSupervisedDatasetPre(object):
 
 
 from fastchat.model.diff_llama import DiffLlamaForCausalLM
+
+
+def find_tensor_without_grad_fn(model):
+    for name, param in model.named_parameters():
+        if param.requires_grad and param.grad is None:
+            print(f"Tensor without grad_fn: {name}")
+
+
+def find_all_linear_names(model):
+    cls = torch.nn.Linear
+    lora_module_names = set()
+    for name, module in model.named_modules():
+        if isinstance(module, cls):
+            names = name.split('.')
+            lora_module_names.add(names[0] if len(names) == 1 else names[-1])
+
+    if 'lm_head' in lora_module_names: # needed for 16-bit
+        lora_module_names.remove('lm_head')
+    if 'fc1' in lora_module_names: # needed for 16-bit
+        lora_module_names.remove('fc1')
+    if 'fc2' in lora_module_names:  # needed for 16-bit
+        lora_module_names.remove('fc2')
+    return list(lora_module_names)
+
+
+def maybe_zero_3(param, ignore_status=False, name=None):
+    from deepspeed import zero
+    from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
+    if hasattr(param, "ds_id"):
+        if param.ds_status == ZeroParamStatus.NOT_AVAILABLE:
+            if not ignore_status:
+                logging.warning(f"{name}: param.ds_status != ZeroParamStatus.NOT_AVAILABLE: {param.ds_status}")
+        with zero.GatheredParameters([param]):
+            param = param.data.detach().cpu().clone()
+    else:
+        param = param.detach().cpu().clone()
+    return param
+
+
+def get_peft_state_non_lora_maybe_zero_3(named_params, require_grad_only=True):
+    to_return = {k: t for k, t in named_params if "lora_" not in k}
+    if require_grad_only:
+        to_return = {k: t for k, t in to_return.items() if t.requires_grad}
+    to_return = {k: maybe_zero_3(v, ignore_status=True).cpu() for k, v in to_return.items()}
+    return to_return
+
+
+def get_peft_state_maybe_zero_3(named_params, bias):
+    if bias == "none":
+        to_return = {k: t for k, t in named_params if "lora_" in k}
+    elif bias == "all":
+        to_return = {k: t for k, t in named_params if "lora_" in k or "bias" in k}
+    elif bias == "lora_only":
+        to_return = {}
+        maybe_lora_bias = {}
+        lora_bias_names = set()
+        for k, t in named_params:
+            if "lora_" in k:
+                to_return[k] = t
+                bias_name = k.split("lora_")[0] + "bias"
+                lora_bias_names.add(bias_name)
+            elif "bias" in k:
+                maybe_lora_bias[k] = t
+        for k, t in maybe_lora_bias:
+            if bias_name in lora_bias_names:
+                to_return[bias_name] = t
+    else:
+        raise NotImplementedError
+    to_return = {k: maybe_zero_3(v, ignore_status=True) for k, v in to_return.items()}
+    return to_return
 
 
 def train():
@@ -809,18 +990,34 @@ def train():
     if model_args.freeze_backbone:
         model.model.requires_grad_(False)
 
-    if model_args.tune_mlp:
-        model.requires_grad_(False)
-        for p in model.get_model().fastchat_proj.parameters():
-            p.requires_grad = True
-
     if training_args.freeze_mlp:
         for p in model.get_model().fastchat_proj.parameters():
             p.requires_grad = False
 
-    params_grad = [n for n, p in model.named_parameters() if p.requires_grad]
+    model.enable_input_require_grads()
+    if training_args.lora:
+        peft_config = LoraConfig(
+            #target_modules=r'.*layers.*\.(q_proj|v_proj)',
+            target_modules=find_all_linear_names(model),
+            inference_mode=False,
+            r=8,
+            lora_alpha=16,
+            lora_dropout=0.05,
+            task_type="CAUSAL_LM",
+        )
+        model.to(torch.bfloat16)
+        model = get_peft_model(model, peft_config)
+        # model = upcast_layer_for_flash_attention(model, torch.bfloat16)
 
-    print(params_grad)
+    if model_args.tune_mlp:
+        # model.requires_grad_(False)
+        for n, p in model.named_parameters():
+            if 'fastchat_proj' in n:
+                p.requires_grad = True
+    model.print_trainable_parameters()
+    # params_grad = [n for n, p in model.named_parameters() if p.requires_grad]
+    #
+    # print(params_grad)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
@@ -839,13 +1036,22 @@ def train():
         model=model, tokenizer=tokenizer, args=training_args, **data_module
     )
 
+    model.train()
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
         trainer.train(resume_from_checkpoint=True)
     else:
         print("Start training")
-        trainer.train()
-    trainer.save_state()
-    safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+        try:
+            trainer.train()
+        except RuntimeError as e:
+            if "element 0 of tensors does not require grad and does not have a grad_fn" in str(e):
+                find_tensor_without_grad_fn(trainer.model)
+            else:
+                raise e
+    # trainer.save_state()
+    # safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
+    model.save_pretrained(training_args.output_dir)
+    tokenizer.save_pretrained(training_args.output_dir)
 
 
 if __name__ == "__main__":

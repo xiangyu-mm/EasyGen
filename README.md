@@ -108,7 +108,7 @@ The inference code of lora also are different, please change the root in fastcha
 
 # Training Cost
 
-![image](https://github.com/zxy556677/EasyGen/blob/main/asset/training cost.png)
+![image](https://github.com/zxy556677/EasyGen/blob/main/asset/train_cost.png)
 
 # Download weights
 
@@ -119,6 +119,12 @@ https://huggingface.co/xiangyu556677/EasyGen
 
 # Inference
 python -m fastchat.serve.cli --model-path ...
+
+
+# Acknowledgement
+
++ [FastChat](https://github.com/thu-ml/unidiffuser) Our model's diffusion module is based on UniDiffuser!
++ [FastChat](https://github.com/lm-sys/FastChat) This repository is built upon FastChat!
 
 
 

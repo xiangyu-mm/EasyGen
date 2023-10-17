@@ -108,7 +108,7 @@ The inference code of lora also are different, please change the root in fastcha
 
 # Training Cost
 
-
+![image](https://github.com/zxy556677/EasyGen/blob/main/asset/training cost.png)
 
 # Download weights
 

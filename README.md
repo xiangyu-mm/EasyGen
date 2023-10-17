@@ -136,7 +136,7 @@ python -m fastchat.serve.cli --model-path ...
 
 # Acknowledgement
 
-+ [UniDiffuser](https://github.com/thu-ml/unidiffuser) Our model's diffusion module is based on UniDiffuser!
++ [UniDiffuser](https://github.com/thu-ml/unidiffuser) The diffusion module of EasyGen, BiDiffuser, is developed based on UniDiffuser!
 + [FastChat](https://github.com/lm-sys/FastChat) This repository is built upon FastChat!
 
 

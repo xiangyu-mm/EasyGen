@@ -106,6 +106,10 @@ from fastchat.train.train_lora import train
 
 The inference code of lora also are different, please change the root in fastchat.serve.cli to aim at it.
 
+# Training Cost
+
+
+
 # Download weights
 
 You can download our trained models from:

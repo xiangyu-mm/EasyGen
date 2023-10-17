@@ -111,7 +111,11 @@ Also, you need to change the 10 line in train_mem.py
 from fastchat.train.train_lora import train
 ```
 
-The inference code of lora also are different, please change the root in fastchat.serve.cli to aim at it.
+The inference code of lora also are different, please use:
+
+```
+python -m fastchat.serve.inference_llama
+```
 
 # Training Cost
 

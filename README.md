@@ -7,6 +7,13 @@ We present EasyGen, an efficient model designed to enhance multimodal understand
 
 ![image](https://github.com/zxy556677/EasyGen/blob/main/asset/easygen1.png)
 
+| Model | EasyGen | InstructBLIP | BLIP2 | LLaVA | Emu |
+|----------|----------|-----------|-----------|---|---|
+| Training Images | 173K | 16M | 129M | 753K | 2B |
+| Image-Captioning | 145.7 | 140.7 | 145.2 | 30.0 | 117.7 |
+
+The performance is evaluated on the MS-COCO Karpathy dataset and measured by the CIDEr metric.
+
 # Dependency
 
 # Pretrain (feature alignment)

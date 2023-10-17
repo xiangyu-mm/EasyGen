@@ -22,7 +22,8 @@ from transformers import (
 )
 import json
 
-from fastchat.train.instruct_tuning import LazySupervisedDatasetVQA, LazySupervisedDatasetNoCaps, LazySupervisedDatasetLLaVA_test
+from fastchat.train.instruct_tuning import LazySupervisedDatasetVQA, LazySupervisedDatasetNoCaps, \
+    LazySupervisedDatasetLLaVA_test
 
 from fastchat.model.diff_llama import DiffLlamaForCausalLM
 
@@ -30,6 +31,8 @@ from fastchat.conversation import (
     conv_templates,
     SeparatorStyle,
 )
+
+from peft import PeftModel
 
 
 def get_rand_des():
@@ -200,7 +203,6 @@ def generate_stream(
         max_src_len = context_len - max_new_tokens - 8
 
     input_ids = input_ids[-max_src_len:]
-    print(input_ids)
 
     if model.config.is_encoder_decoder:
         encoder_output = model.encoder(input_ids=torch.as_tensor([input_ids],
@@ -219,7 +221,6 @@ def generate_stream(
             else:
                 ask = tokenizer.decode(input_ids, skip_special_tokens=True,
                                        spaces_between_special_tokens=False)
-                print(ask)
                 # out = model(input_ids=input_ids.unsqueeze(0), images=image, clip_l=clip_image, use_cache=True)
                 out = model(input_ids=input_ids.unsqueeze(0), images=image, use_cache=True)
                 # out = model(input_ids=torch.as_tensor([input_ids], device=device), images=image, use_cache=True)
@@ -386,6 +387,10 @@ def encode_stream(
 
 class ChatIO(abc.ABC):
     @abc.abstractmethod
+    def image_path_for_input(self, role: str) -> str:
+        """Prompt for input from a role."""
+
+    @abc.abstractmethod
     def prompt_for_input(self, role: str) -> str:
         """Prompt for input from a role."""
 
@@ -466,7 +471,6 @@ def chat_loop(
         }
 
         chatio.prompt_for_output(conv.roles[1])
-        print(gen_params)
         clip = None
         output_stream = generate_stream_func(model, tokenizer, gen_params, clip, device)
         outputs = chatio.stream_output(output_stream)
@@ -543,7 +547,6 @@ def encoder2decoder(
     # data = LazySupervisedDatasetNoCaps(tokenizer=tokenizer)
     data = LazySupervisedDatasetLLaVA_test(tokenizer=tokenizer)
     length = data.__len__()
-    print(length)
     f1 = open("/home/data2/xiangyu/Data/Diff-LLM/okvqa_vicuna.json", "a")
     f2 = open("/home/data2/xiangyu/Data/Diff-LLM/ka_truth.txt", "a")
     f3 = open("/home/data2/xiangyu/Data/Diff-LLM/ka_diff.txt", "a")
@@ -571,8 +574,7 @@ def encoder2decoder(
         answer = data.__getitem__(i)["labels"]
         ask = tokenizer.decode(ids, skip_special_tokens=True,
                                spaces_between_special_tokens=False)
-        print(image_id)
-        print(answer)
+
         conv.append_message(conv.roles[0], ask)
         conv.append_message(conv.roles[1], None)
 
@@ -637,14 +639,14 @@ def inference_turn(
         chatio: ChatIO,
         debug: bool,
 ):
-
     FLAGS = flags.FLAGS
     config_flags.DEFINE_config_file(
         "config0", "fastchat/bidiffuser/configs/sample_unidiffuser_v1.py", "Configuration.", lock_config=False)
     FLAGS(sys.argv)
     config0 = FLAGS.config0
     nnet = utils.get_nnet(**config0.nnet)
-    nnet.load_state_dict(torch.load('/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/uvit_v1.pth', map_location='cpu'))
+    nnet.load_state_dict(
+        torch.load('/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/uvit_v1.pth', map_location='cpu'))
     nnet.to(device)
     nnet.eval()
 
@@ -659,7 +661,6 @@ def inference_turn(
 
     clip_img_model, clip_img_model_preprocess = clip.load("ViT-B/32", device=device, jit=False)
 
-
     # Model
     # model, tokenizer = load_model(
     #     model_path, device, num_gpus, max_gpu_memory, load_8bit, cpu_offloading, debug
@@ -667,13 +668,18 @@ def inference_turn(
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     conv_template = "vicuna_v1.1"
     model = DiffLlamaForCausalLM.from_pretrained(
-        "/home/data2/xiangyu/Code/EasyGen/output_vicuna_7b",
+        "/home/data2/xiangyu/Code/EasyGen/pretrain_only_MLP",
         cache_dir=None,
+    )
+
+    model = PeftModel.from_pretrained(
+        model,
+        "/home/data2/xiangyu/Code/EasyGen/instruction_tunning_lora"
     )
     model.to(device)
     model.eval()
     tokenizer = transformers.AutoTokenizer.from_pretrained(
-        "/home/data2/xiangyu/Code/EasyGen/Tuning_for_LLaVA_MLP",
+        "/home/data2/xiangyu/Code/EasyGen/pretrain_only_MLP",
         model_max_length=1024,
         padding_side="right",
         use_fast=False,
@@ -686,7 +692,7 @@ def inference_turn(
         conv = conv_templates[conv_template].copy()
     else:
         conv = conv_templates("one_shot").copy()
-
+    image_path = chatio.image_path_for_input(conv.roles[0])
     while True:
         try:
             inp = chatio.prompt_for_input(conv.roles[0])
@@ -701,28 +707,29 @@ def inference_turn(
 
         generate_stream_func = generate_stream
         prompt = conv.get_prompt()[6:]
-        print(prompt)
         ids = tokenizer(prompt, return_tensors="pt").input_ids[0][1:]
+        if image_path != '':
+            image_feature = get_image_feature(image_path,
+                                              nnet,
+                                              caption_decoder,
+                                              clip_text_model,
+                                              autoencoder,
+                                              clip_img_model,
+                                              clip_img_model_preprocess)
+        else:
+            image_feature = None
 
-        image_feature = get_image_feature('/home/data2/xiangyu/Data/val2014/COCO_val2014_000000475566.jpg',
-                                          nnet,
-                                          caption_decoder,
-                                          clip_text_model,
-                                          autoencoder,
-                                          clip_img_model,
-                                          clip_img_model_preprocess)
+        # tmp = data.__getitem__(i)["images"]
+        # clip = tuple([torch.as_tensor(tmp, device='cuda')])
+        # clip = torch.stack(clip, 0)
+        # ids = data.__getitem__(i)["input_ids"][0][1:]
+        # image_id = data.__getitem__(i)["image_id"]
+        # clip_image = data.__getitem__(i)["clip_l"]
+        # clip_image = tuple([torch.as_tensor(clip_image, device='cuda')])
+        # clip_image = torch.stack(clip_image, 0)
+        # clip_image = clip_image.to(torch.float32)
 
-    # tmp = data.__getitem__(i)["images"]
-    # clip = tuple([torch.as_tensor(tmp, device='cuda')])
-    # clip = torch.stack(clip, 0)
-    # ids = data.__getitem__(i)["input_ids"][0][1:]
-    # image_id = data.__getitem__(i)["image_id"]
-    # clip_image = data.__getitem__(i)["clip_l"]
-    # clip_image = tuple([torch.as_tensor(clip_image, device='cuda')])
-    # clip_image = torch.stack(clip_image, 0)
-    # clip_image = clip_image.to(torch.float32)
-
-    # encoder_output = torch.stack(llm, 0)
+        # encoder_output = torch.stack(llm, 0)
         gen_params = {
             "model": model_path,
             "prompt": prompt,
@@ -737,18 +744,21 @@ def inference_turn(
         # chatio.prompt_for_output(conv.roles[1])
         output_stream = generate_stream_func(model, tokenizer, gen_params, image_feature, None, device)
         outputs = chatio.stream_output(output_stream)
-    # f1.write(outputs)
-    # f1.write("\n")
-    # f2.write(tokenizer.decode(ids, skip_special_tokens=True,
-    #                               spaces_between_special_tokens=False))
-    # NOTE: strip is important to align with the training data.
+        # f1.write(outputs)
+        # f1.write("\n")
+        # f2.write(tokenizer.decode(ids, skip_special_tokens=True,
+        #                               spaces_between_special_tokens=False))
+        # NOTE: strip is important to align with the training data.
         conv.messages[-1][-1] = outputs.strip()
-    # result.append({'question_id': str(image_id), 'answer': outputs})
+        # result.append({'question_id': str(image_id), 'answer': outputs})
         if debug:
             print("\n", {"prompt": prompt, "outputs": outputs}, "\n")
 
 
 class SimpleChatIO(ChatIO):
+    def image_path_for_input(self, role) -> str:
+        return input(f"{'input image path or enter'}: ")
+
     def prompt_for_input(self, role) -> str:
         return input(f"{role}: ")
 

@@ -131,9 +131,15 @@ https://huggingface.co/xiangyu556677/EasyGen
 
 
 # Inference
+
+By using this command, EasyGen can do image ground conversation:
+```
 python -m fastchat.serve.cli --model-path ...
-
-
+```
+By using this command, EasyGen is trained on multimodal dialogue conversation and can generate images:
+```
+python -m fastchat.serve.inference_easygen
+```
 # Acknowledgement
 
 + [UniDiffuser](https://github.com/thu-ml/unidiffuser) The diffusion module of EasyGen, BiDiffuser, is developed based on UniDiffuser!

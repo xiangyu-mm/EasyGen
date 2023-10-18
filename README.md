@@ -134,8 +134,9 @@ https://huggingface.co/xiangyu556677/EasyGen
 
 By using this command, EasyGen can do image ground conversation:
 ```
-python -m fastchat.serve.cli --model-path ...
+python -m fastchat.serve.inference_llama
 ```
+Before using this command, please download lora_weight and LLM's original weight from https://huggingface.co/xiangyu556677/EasyGen. Also, you need to change the line 671, 677 and 682 to your own root. As for BiDiffuser's weight, please according to [UniDiffuser](https://github.com/thu-ml/unidiffuser) to download relevant weight and change the line 649 to your own root.
 By using this command, EasyGen is trained on multimodal dialogue conversation and can generate images:
 ```
 python -m fastchat.serve.inference_easygen

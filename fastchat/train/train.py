@@ -431,7 +431,7 @@ class LazySupervisedDatasetPureText(Dataset):
         super(LazySupervisedDatasetPureText, self).__init__()
         self.tokenizer = tokenizer
         self.data = json.load(open('/home/data2/xiangyu/InstructTuning/Data/blip_laion_cc_sbu_558k.json'))
-        self.num_data = 50000
+        self.num_data = 5000
 
     def __len__(self):
         return self.num_data
@@ -634,7 +634,7 @@ def preprocess_llava(
         # Skip the first one if it is not from human
         sources = sources[1:]
     if caption is not None:
-        sources[0]["value"] = '<Img>'+caption+'</Img>'+sources[0]["value"]
+        sources[0]["value"] = '<Img>' + caption + '</Img>' + sources[0]["value"]
     for source in sources:
         source["value"] = source["value"].replace(DEFAULT_IMAGE_TOKEN, '').strip()
         role = roles[source["from"]]
@@ -689,6 +689,78 @@ def preprocess_llava(
     )
 
 
+def preprocess_text_bind(
+        sources,
+        tokenizer: transformers.PreTrainedTokenizer,
+) -> Dict:
+    conv = get_conversation_template("vicuna")
+    roles = {"user": conv.roles[0], "assistant": conv.roles[1]}
+    # Apply prompt templates
+    conversations = []
+    if sources[0]["role"] != 'user':
+        # Skip the first one if it is not from human
+        sources = sources[1:]
+    if sources[-1]["role"] == 'user':
+        # Skip the last one if it is from human
+        sources = sources[:-1]
+    for source in sources:
+        if source['image_list']:
+            source["value"] = source["content"].replace(DEFAULT_IMAGE_TOKEN,
+                                                        '<Img>' + source['caption_list'][0] + '</Img>').strip()
+        else:
+            source["value"] = source["content"]
+        role = roles[source["role"]]
+        conv.append_message(role, source["value"])
+    conversations.append(conv.get_prompt())
+
+    # Tokenize conversations
+    input_ids = tokenizer(
+        conversations,
+        return_tensors="pt",
+        padding="longest",
+        max_length=tokenizer.model_max_length,
+        truncation=True,
+    ).input_ids
+    targets = input_ids.clone()
+
+    # Mask targets
+    sep = "ASSISTANT: "
+    for conversation, target in zip(conversations, targets):
+        total_len = int(target.ne(tokenizer.pad_token_id).sum())
+
+        rounds = conversation.split('</s>')
+        cur_len = 1
+        target[:cur_len] = IGNORE_INDEX
+        for i, rou in enumerate(rounds):
+            if rou == "":
+                break
+
+            parts = rou.split(sep)
+            if len(parts) != 2:
+                break
+            parts[0] += sep
+            round_len = len(tokenizer(rou).input_ids)
+            instruction_len = len(tokenizer(parts[0]).input_ids) - 2
+
+            target[cur_len: cur_len + instruction_len] = IGNORE_INDEX
+
+            cur_len += round_len
+        target[cur_len:] = IGNORE_INDEX
+
+        if cur_len < tokenizer.model_max_length:
+            if cur_len != total_len:
+                target[:] = IGNORE_INDEX
+                print(
+                    f"WARNING: tokenization mismatch: {cur_len} vs. {total_len}."
+                    f" (ignored)"
+                )
+
+    return dict(
+        input_ids=input_ids[0][2:],
+        labels=targets[0][2:],
+    )
+
+
 class LazySupervisedDatasetVisDial(Dataset):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
         super(LazySupervisedDatasetVisDial, self).__init__()
@@ -731,12 +803,29 @@ class LazySupervisedDatasetLLaVA(Dataset):
         return data_dict
 
 
+class LazySupervisedDatasetTextBind(Dataset):
+    def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
+        super(LazySupervisedDatasetTextBind, self).__init__()
+        self.tokenizer = tokenizer
+        self.root = "/home/data2/xiangyu/Task/textbind.train.json"
+        self.data = json.load(open(self.root))
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        conversation = self.data[index]['conversation']
+        data_dict = preprocess_text_bind(conversation, self.tokenizer)
+        return data_dict
+
+
 class LazySupervisedDatasetLLaVAPre(Dataset):
     def __init__(self, tokenizer: transformers.PreTrainedTokenizer):
         super(LazySupervisedDatasetLLaVAPre, self).__init__()
         self.tokenizer = tokenizer
         self.root = "/home/data2/xiangyu/InstructTuning/Data/LLaVA_80K"
         self.num_data = get_feature_test(self.root)
+        self.num_data = 10000
         self.caption_decoder = CaptionDecoder(device='cuda',
                                               pretrained_path="/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/caption_decoder.pth",
                                               hidden_dim=64)
@@ -811,11 +900,15 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer,
     text_pre = LazySupervisedDatasetPureText
     pre_text = text_pre(tokenizer=tokenizer)
 
+    text_bind = LazySupervisedDatasetTextBind
+    text_bind_data = text_bind(tokenizer=tokenizer)
+
     # train_dataset = qa_dataset + dialog_dataset + vqav2_dataset + train_dataset + llava_dataset
     # train_dataset = llava_dataset + train_dataset + qa_dataset + vqav2_dataset
-    train_dataset = pre_dataset + caption_dataset + llava_dataset + text_dataset + vqav2_dataset
-    # train_dataset = pre_text + pre_llava
-    data_collator = DataCollatorForSupervisedDataset2014(tokenizer=tokenizer)
+    # train_dataset = pre_dataset + caption_dataset + llava_dataset + text_dataset + vqav2_dataset
+    train_dataset = pre_text + pre_llava + text_bind_data
+    # data_collator = DataCollatorForSupervisedDataset2014(tokenizer=tokenizer)
+    data_collator = DataCollatorForLLM(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
                 eval_dataset=None,
                 data_collator=data_collator)
@@ -855,7 +948,7 @@ class DataCollatorForSupervisedDataset2014(object):
 
 
 @dataclass
-class DataCollatorForSupervisedDatasetPre(object):
+class DataCollatorForLLM(object):
     """Collate examples for supervised fine-tuning."""
 
     tokenizer: transformers.PreTrainedTokenizer
@@ -901,9 +994,9 @@ def find_all_linear_names(model):
             names = name.split('.')
             lora_module_names.add(names[0] if len(names) == 1 else names[-1])
 
-    if 'lm_head' in lora_module_names: # needed for 16-bit
+    if 'lm_head' in lora_module_names:  # needed for 16-bit
         lora_module_names.remove('lm_head')
-    if 'fc1' in lora_module_names: # needed for 16-bit
+    if 'fc1' in lora_module_names:  # needed for 16-bit
         lora_module_names.remove('fc1')
     if 'fc2' in lora_module_names:  # needed for 16-bit
         lora_module_names.remove('fc2')
@@ -997,7 +1090,7 @@ def train():
     model.enable_input_require_grads()
     if training_args.lora:
         peft_config = LoraConfig(
-            #target_modules=r'.*layers.*\.(q_proj|v_proj)',
+            # target_modules=r'.*layers.*\.(q_proj|v_proj)',
             target_modules=find_all_linear_names(model),
             inference_mode=False,
             r=8,
@@ -1015,9 +1108,8 @@ def train():
             if 'fastchat_proj' in n:
                 p.requires_grad = True
     model.print_trainable_parameters()
-    # params_grad = [n for n, p in model.named_parameters() if p.requires_grad]
-    #
-    # print(params_grad)
+    params_grad = [n for n, p in model.named_parameters() if p.requires_grad]
+    print(params_grad)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,

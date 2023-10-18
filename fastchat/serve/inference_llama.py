@@ -646,7 +646,7 @@ def inference_turn(
     config0 = FLAGS.config0
     nnet = utils.get_nnet(**config0.nnet)
     nnet.load_state_dict(
-        torch.load('/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/uvit_v1.pth', map_location='cpu'))
+        torch.load('/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/uvit_bi.pth', map_location='cpu'))
     nnet.to(device)
     nnet.eval()
 

@@ -94,7 +94,7 @@ def evaluate(config):
     N = len(_betas)
 
     nnet = utils.get_nnet(**config.nnet)
-    logging.info(f'load nnet from {config.nnet_path}')
+    # logging.info(f'load nnet from {config.nnet_path}')
     nnet.load_state_dict(torch.load(config.nnet_path, map_location='cpu'))
     nnet.to(device)
     nnet.eval()
@@ -265,8 +265,8 @@ def evaluate(config):
     def decode(_batch):
         return autoencoder.decode(_batch)
 
-    logging.info(config.sample)
-    logging.info(f'N={N}')
+    # logging.info(config.sample)
+    # logging.info(f'N={N}')
 
     contexts, img_contexts, clip_imgs = prepare_contexts(config, clip_text_model, clip_img_model,
                                                          clip_img_model_preprocess, autoencoder)
@@ -318,8 +318,8 @@ def evaluate(config):
                 start_time = time.time()
                 x = dpm_solver.sample(_x_init, steps=config.sample.sample_steps, eps=1. / N, T=1.)
                 end_time = time.time()
-                print(
-                    f'\ngenerate {_n_samples} samples with {config.sample.sample_steps} steps takes {end_time - start_time:.2f}s')
+                # print(
+                #     f'\ngenerate {_n_samples} samples with {config.sample.sample_steps} steps takes {end_time - start_time:.2f}s')
 
         os.makedirs(config.output_path, exist_ok=True)
         if mode == 'joint':
@@ -382,7 +382,7 @@ def evaluate(config):
 
         tmp = caption_decoder.decode_prefix(_text)
         samples = caption_decoder.generate_captions(_text)
-        logging.info(samples)
+        # logging.info(samples)
         return tmp
         # os.makedirs(os.path.join(config.output_path, config.mode), exist_ok=True)
         # with open(os.path.join(config.output_path, config.mode, f'{config.mode}.txt'), 'w') as f:
@@ -592,8 +592,8 @@ def get_feature(
     def decode(_batch):
         return autoencoder.decode(_batch)
 
-    logging.info(config.sample)
-    logging.info(f'N={N}')
+    # logging.info(config.sample)
+    # logging.info(f'N={N}')
 
     contexts, img_contexts, clip_imgs = prepare_contexts(config, clip_text_model, clip_img_model,
                                                          clip_img_model_preprocess, autoencoder)
@@ -645,8 +645,8 @@ def get_feature(
                 start_time = time.time()
                 x = dpm_solver.sample(_x_init, steps=config.sample.sample_steps, eps=1. / N, T=1.)
                 end_time = time.time()
-                print(
-                    f'\ngenerate {_n_samples} samples with {config.sample.sample_steps} steps takes {end_time - start_time:.2f}s')
+                # print(
+                #     f'\ngenerate {_n_samples} samples with {config.sample.sample_steps} steps takes {end_time - start_time:.2f}s')
 
         os.makedirs(config.output_path, exist_ok=True)
         if mode == 'joint':
@@ -708,8 +708,8 @@ def get_feature(
             _text = sample_fn('i2t', z=_z, clip_img=_clip_img)
 
         tmp = caption_decoder.decode_prefix(_text)
-        samples = caption_decoder.generate_captions(_text)
-        logging.info(samples)
+        # samples = caption_decoder.generate_captions(_text)
+        # logging.info(samples)
         return tmp
         # os.makedirs(os.path.join(config.output_path, config.mode), exist_ok=True)
         # with open(os.path.join(config.output_path, config.mode, f'{config.mode}.txt'), 'w') as f:
@@ -728,7 +728,8 @@ import sys
 FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file(
     "config", "fastchat/bidiffuser/configs/sample_unidiffuser_v1.py", "Configuration.", lock_config=False)
-flags.DEFINE_string("nnet_path", "/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/uvit_v1.pth", "The nnet to evaluate.")
+flags.DEFINE_string("nnet_path", "/home/data2/xiangyu/Code/EasyGen/fastchat/bidiffuser/models/uvit_v1.pth",
+                    "The nnet to evaluate.")
 flags.DEFINE_string("output_path", "out", "dir to write results to")
 flags.DEFINE_string("prompt", "an elephant under the sea", "the prompt for text-to-image generation and text variation")
 flags.DEFINE_string("img", "assets/space.jpg", "the image path for image-to-text generation and image variation")
@@ -775,6 +776,32 @@ def get_image_feature(
     config.img = image_path
     config.n_samples = FLAGS.n_samples
     config.mode = 'i2t'
+    image_feature = get_feature(config,
+                                nnet,
+                                caption_decoder,
+                                clip_text_model,
+                                autoencoder,
+                                clip_img_model,
+                                clip_img_model_preprocess)
+    return image_feature
+
+
+def get_image(
+        prompt,
+        nnet,
+        caption_decoder,
+        clip_text_model,
+        autoencoder,
+        clip_img_model,
+        clip_img_model_preprocess):
+    config = FLAGS.config
+    config.nnet_path = FLAGS.nnet_path
+    config.output_path = FLAGS.output_path
+    config.prompt = FLAGS.prompt
+    config.nrow = min(FLAGS.nrow, FLAGS.n_samples)
+    config.img = FLAGS.img
+    config.n_samples = prompt
+    config.mode = 't2i'
     get_feature(config,
                 nnet,
                 caption_decoder,

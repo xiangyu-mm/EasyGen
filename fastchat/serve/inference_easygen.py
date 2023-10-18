@@ -675,7 +675,7 @@ def inference_turn(
 
     model = PeftModel.from_pretrained(
         model,
-        "/home/data2/xiangyu/Code/EasyGen/instruction_tunning_lora"
+        "/home/data2/xiangyu/Code/EasyGen/multimodal_dialogue_lora"
     )
     model.to(device)
     model.eval()

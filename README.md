@@ -16,6 +16,10 @@ The performance is evaluated on the MS-COCO Karpathy dataset and measured by the
 
 # Dependency
 
+```
+pip install -r requirements.txt
+```
+
 # Pretrain (feature alignment)
 
 bash train_vicuna_7B.sh

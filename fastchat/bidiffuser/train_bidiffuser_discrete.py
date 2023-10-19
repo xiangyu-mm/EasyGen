@@ -23,6 +23,7 @@ from libs.caption_decoder import CaptionDecoder
 import torch.nn as nn
 import time
 import torch.nn.functional as F
+import random
 
 
 def stable_diffusion_beta_schedule(linear_start=0.00085, linear_end=0.0120, n_timestep=1000):
@@ -87,16 +88,17 @@ class Schedule(object):  # discrete time
             xn = [stp(self.cum_alphas[n] ** 0.5, tensor) + stp(self.cum_betas[n] ** 0.5, _eps) for tensor, _eps in zip(x0, eps)]
             return torch.tensor(n), eps, xn
         else:
-            n = np.random.choice(list(range(1, self.N + 1)), (len(x0),))
+            # n = np.array(np.random.choice(list(range(1, self.N + 1)), (len(x0),)))
+            n = np.array([random.randint(1, self.N)]*len(x0))
             eps = torch.randn_like(x0)
             xn = stp(self.cum_alphas[n] ** 0.5, x0) + stp(self.cum_betas[n] ** 0.5, eps)
-            return torch.tensor(n), eps, xn
+        return torch.tensor(n).to(x0.device), eps, xn
 
     def __repr__(self):
         return f'Schedule({self.betas[:10]}..., {self.N})'
 
 
-def LSimple(x0, nnet, schedule, clip, z, caption_decoder):
+def LSimple(x0, nnet, schedule, clip, z):
     n, eps, xn = schedule.sample(x0)  # n in {1, ..., 1000}
     t_img = torch.zeros(n.size(0), dtype=torch.int, device=n.device)
     data_type = torch.zeros_like(n, device=x0.device,
@@ -108,16 +110,16 @@ def LSimple(x0, nnet, schedule, clip, z, caption_decoder):
     loss1 = mse(eps, text_out)
     loss2 = mse(z_out, eps_z)
 
-    n_re, eps_re, xn_re = schedule.sample(z)  # n in {1, ..., 1000}
-    t_txt = torch.zeros(n_re.size(0), dtype=torch.int, device=n.device)
-    data_type = torch.zeros_like(t_txt, device='cuda',
-                                 dtype=torch.int) + 1
-    z_out_re, clip_img_out_re, text_out_re = nnet(xn_re, clip, text=x0, t_img=n_re, t_text=t_txt, data_type=data_type)
-    eps_t = torch.zeros(text_out_re.shape, device=n.device)
-    loss3 = mse(eps_re, z_out_re)
-    loss4 = mse(text_out_re, eps_t)
+    # n_re, eps_re, xn_re = schedule.sample(z)  # n in {1, ..., 1000}
+    # t_txt = torch.zeros(n_re.size(0), dtype=torch.int, device=n.device)
+    # data_type = torch.zeros_like(t_txt, device='cuda',
+    #                              dtype=torch.int) + 1
+    # z_out_re, clip_img_out_re, text_out_re = nnet(xn_re, clip, text=x0, t_img=n_re, t_text=t_txt, data_type=data_type)
+    # eps_t = torch.zeros(text_out_re.shape, device=n.device)
+    # loss3 = mse(eps_re, z_out_re)
+    # loss4 = mse(text_out_re, eps_t)
 
-    return loss1 + loss2 + loss3 + loss4
+    return loss1 + loss2
 
 
 def LSimple1(x0, nnet, schedule, schedule1, clip, z):
@@ -278,9 +280,8 @@ def train(config):
         text = _batch[2]
         contexts_low_dim = caption_decoder.encode_prefix(text)
         # t_img = torch.zeros(timesteps.size(0), dtype=torch.int, device=device)
-        # loss = LSimple(contexts_low_dim, nnet, _schedule, clip, _z,
-        #                caption_decoder)  # currently only support the extracted feature version
-        loss = LSimple_T2I(_z, clip, contexts_low_dim, None, nnet, _schedule, device)
+        loss = LSimple(contexts_low_dim, nnet, _schedule, clip, _z)  # currently only support the extracted feature version
+        # loss = LSimple_T2I(_z, clip, contexts_low_dim, None, nnet, _schedule, device)
         # _metrics['loss'] = accelerator.gather(loss.detach()).mean()
         _metrics['loss'] = loss
         accelerator.backward(loss)

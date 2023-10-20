@@ -61,7 +61,7 @@ line 703:
 train_dataset = pre_dataset + caption_dataset
 ```
 
-# instruct-tuning
+# Instruct-tuning
 
 bash train_vicuna_7B.sh
 

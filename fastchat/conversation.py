@@ -755,7 +755,7 @@ register_conv_template(
     )
 )
 
-# ChagGPT default template
+# ChangGPT default template
 register_conv_template(
     Conversation(
         name="polyglot_changgpt",

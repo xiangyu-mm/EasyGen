@@ -123,10 +123,6 @@ python -m fastchat.serve.inference_llama
 
 <img src="asset/cmd_example.gif" width="70%">
 
-# Training Cost
-
-![image](https://github.com/zxy556677/EasyGen/blob/main/asset/train_cost.png)
-
 # Download weights
 
 You can download our trained models from:
